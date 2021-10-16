@@ -228,6 +228,12 @@ def destroy_proxies(pyproxies: JsProxy):
     """
     pass
 
+def await_js(obj: JsProxy):
+    """Block execution while awaiting a JsProxy.
+
+    obj must be a JsProxy.
+    """
+    return obj
 
 __name__ = _save_name
 del _save_name

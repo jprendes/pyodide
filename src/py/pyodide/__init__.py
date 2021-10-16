@@ -20,6 +20,7 @@ from ._core import (
     IN_BROWSER,
     ConversionError,
     destroy_proxies,
+    await_js,
 )
 from _pyodide._base import (
     eval_code,
@@ -59,4 +60,5 @@ __all__ = [
     "should_quiet",
     "ConversionError",
     "destroy_proxies",
+    "await_js",
 ]
