@@ -56,6 +56,139 @@ if (globalThis.FinalizationRegistry) {
   // Module.bufferFinalizationRegistry = finalizationRegistry;
 }
 
+/**
+ * A wrapper for the result of a function call that may return a Promise or a value.
+ * Unlike ``Promise.resolve``/``Promise.reject``, the held value can be obtained within the same microtask.
+ * This class allows using the same pattern for results that are promises and plain values without incurring
+ * an extra microtask if it's not necessary.
+ * 
+ * Example:
+ *   function f(x) {
+ *     switch (x) {
+ *       case 1: return 42;
+ *       case 2: throw 42;
+ *       case 3: return Promise.resolve(42);
+ *       case 4: return Promise.reject(42);
+ *     }
+ *   }
+ *   function safe_f(x) {
+ *     return new ResultWrapper(() => f(x));
+ *   }
+ *   safe_f(1).then((res) => res.unwrap() + 1).unwrap(); // returns 43 within an only microtask
+ *   safe_f(2).then((res) => res.unwrap() + 1).unwrap(); // throws 42 within an only microtask
+ *   safe_f(3).then((res) => res.unwrap() + 1).unwrap(); // returns a promise that resolves to 43
+ *   safe_f(4).then((res) => res.unwrap() + 1).unwrap(); // returns a promise that rejects to 42
+ *
+ * @class
+ */
+ class ResultWrapper {
+  static _STATE = Object.freeze({
+    PENDING: "pending",
+    RESOLVED: "resolved",
+    REJECTED: "rejected",
+  });
+  _state = null;
+  _value = null;
+
+  /**
+   * Creates a ``Result`` that hold the result of calling ``f`` with no input arguments.
+   * Constructing a ``Result`` will never throw, even if ``f`` throws.
+   *
+   * @param {function} [f] The function to be executed with no arguments.
+   *        The result of calling this function will be held by the ``Result``.
+   *        It can be an async function.
+   */
+  constructor(f) {
+    try {
+      this._value = f();
+      if (this._value instanceof ResultWrapper) {
+        this._value = this._value.unwrap();
+      }
+      if (this._value instanceof Promise) {
+        this._state = ResultWrapper._STATE.PENDING;
+        this._value = (async (v) => {
+          try {
+            while (v instanceof Promise) {
+              v = await v;
+              if (v instanceof ResultWrapper) v = v.unwrap();
+            }
+            this._value = v;
+            this._state = ResultWrapper._STATE.RESOLVED;
+            return v;
+          } catch (err) {
+            this._value = err;
+            this._state = ResultWrapper._STATE.REJECTED;
+            throw err;
+          }
+        })(this._value);
+      } else {
+        this._state = ResultWrapper._STATE.RESOLVED;
+      }
+    } catch (err) {
+      this._state = ResultWrapper._STATE.REJECTED;
+      this._value = err;
+    }
+  }
+
+  /**
+   * Returns the held result.
+   * If the held status is a pending Promise, it returns the promise.
+   * Otherwise, it will return the held status if ``f`` executed succesfully,
+   * or will rethrow the exception raised by ``f``.
+   *
+   * @returns {Promise|any} The held result.
+   * @throws {any} The held exception.
+   */
+  unwrap() {
+    if (this._state === ResultWrapper._STATE.REJECTED) {
+      throw this._value;
+    }
+    return this._value;
+  }
+
+  /**
+   * Calls the input function ``f`` with a settled ``ResultWrapper``-like object as an input argument.
+   * If the held result is a pending Promise, ``f`` will only be called once the Promise is settled.
+   * Otherwise, ``f`` will be called immediately.
+   * 
+   * In any case, the ``ResultWrapper``-like object received by ``f`` will not have a ``then`` method.
+   * This allows using ``ResultWrapper`` as if they were promises without creating an infinite loop.
+   * e.g., using await to wait for a ``ResultWrapper`` to settle.
+   *
+   * @returns {ResultWrapper} Returns a ``ResultWrapper`` that wraps the result of calling ``f``.
+   *          Just like promises, calls to then in a ``ResultWrapper`` can be chained.
+   */
+  then(f) {
+    const non_thenable = { unwrap: this.unwrap.bind(this) };
+    if (this._state === ResultWrapper._STATE.PENDING) {
+      return new ResultWrapper(() => this._value.then(
+        () => f(non_thenable),
+        () => f(non_thenable)
+      ));
+    }
+    return new ResultWrapper(non_thenable);
+  }
+}
+
+/**
+ * Calls a Module function while being aware of Emscripten's Asyncify.
+ * If the wasm function has been paused by Asyncify the result will be a pending ``ResultWrapper``.
+ * If the wasm function has not been paused, the result will be a settled ``ResultWrapper``.
+ *
+ * @returns {ResultWrapper} Returns a ``ResultWrapper`` that wraps the result of calling ``f``.
+ */
+Module.call_asyncify = function(name, ...args) {
+  return new ResultWrapper(() => {
+    const ret = Module[name](...args);
+    var runningAsync = Module.Asyncify.currData;
+    var prevRunningAsync = Module.Asyncify.asyncFinalizers.length > 0;
+    if (runningAsync && !prevRunningAsync) {
+      return new Promise((resolve) => Module.Asyncify.asyncFinalizers.push(resolve))
+    }
+    return ret;
+  });
+}
+
 let pyproxy_alloc_map = new Map();
 Module.pyproxy_alloc_map = pyproxy_alloc_map;
 let trace_pyproxy_alloc;

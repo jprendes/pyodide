@@ -122,16 +122,18 @@ Module.fatal_error = function (e) {
 Module.runPythonSimple = function (code) {
   let code_c_string = Module.stringToNewUTF8(code);
   let errcode;
-  try {
-    errcode = Module._run_python_simple_inner(code_c_string);
-  } catch (e) {
-    Module.fatal_error(e);
-  } finally {
-    Module._free(code_c_string);
-  }
-  if (errcode === -1) {
-    Module._pythonexc2js();
-  }
+  return Module.call_asyncify("_run_python_simple_inner", code_c_string).then((res) => {
+    try {
+      errcode = res.unwrap();
+    } catch (e) {
+      Module.fatal_error(e);
+    } finally {
+      Module._free(code_c_string);
+    }
+    if (errcode === -1) {
+      Module._pythonexc2js();
+    }
+  }).unwrap();
 };
 
 /**
