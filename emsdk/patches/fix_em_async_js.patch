@@ -1,0 +1,89 @@
+From d877caaba673d60f4f5d07ac3d341a293e09960c Mon Sep 17 00:00:00 2001
+From: Ingvar Stepanyan <rreverser@google.com>
+Date: Thu, 22 Jul 2021 16:09:50 +0000
+Subject: [PATCH 1/9] Add EM_ASYNC_JS macro
+
+Adds an easy way to declare asynchronous JS functions. With this helper, users can use `await` directly inside of such snippets, don't need to wrap every such function into `Asyncify.handleAsync` manually, don't need to deal with propagating return values, and, finally, don't need to manually list all such functions in `ASYNCIFY_IMPORTS` since we know statically they're asynchronous.
+
+I've also updated docs to merge "returning values" section into the first example, since it's now straightforward with `EM_ASYNC_JS`, a bit more involved but still easy with `EM_JS` + `Asyncify.handleAsync`, and only `Asyncify.handleSleep` API requires more explanation.
+
+Fixes #9709.
+
+This is a simplification of an upstream pull request that fixed this problem.
+https://github.com/emscripten-core/emscripten/pull/14728/files
+This patch doesn't include doc or test changes.
+
+--- a/emsdk/upstream/emscripten/system/include/emscripten/em_js.h
++++ b/emsdk/upstream/emscripten/system/include/emscripten/em_js.h
+@@ -57,10 +57,15 @@
+ // emJsFuncs metadata is read in emscripten.py's create_em_js, which creates an
+ // array of JS function strings to be included in the JS output.
+ 
+-#define EM_JS(ret, name, params, ...)                                                              \
++#define _EM_JS(ret, c_name, js_name, params, code)                                                 \
+   _EM_JS_CPP_BEGIN                                                                                 \
+-  ret name params EM_IMPORT(name);                                                                 \
++  ret c_name params EM_IMPORT(js_name);                                                            \
+   EMSCRIPTEN_KEEPALIVE                                                                             \
+-  __attribute__((section("em_js"), aligned(1))) char __em_js__##name[] =                           \
+-    #params "<::>" #__VA_ARGS__;                                                                   \
++  __attribute__((section("em_js"), aligned(1))) char __em_js__##js_name[] =                        \
++    #params "<::>" code;                                                                           \
+   _EM_JS_CPP_END
++
++#define EM_JS(ret, name, params, ...) _EM_JS(ret, name, name, params, #__VA_ARGS__)
++
++#define EM_ASYNC_JS(ret, name, params, ...) _EM_JS(ret, name, __asyncjs__##name, params,           \
++  "{ return Asyncify.handleAsync(async () => " #__VA_ARGS__ "); }")
+
+--- a/emsdk/upstream/emscripten/cache/sysroot/include/emscripten/em_js.h
++++ b/emsdk/upstream/emscripten/cache/sysroot/include/emscripten/em_js.h
+@@ -57,10 +57,15 @@
+ // emJsFuncs metadata is read in emscripten.py's create_em_js, which creates an
+ // array of JS function strings to be included in the JS output.
+ 
+-#define EM_JS(ret, name, params, ...)                                                              \
++#define _EM_JS(ret, c_name, js_name, params, code)                                                 \
+   _EM_JS_CPP_BEGIN                                                                                 \
+-  ret name params EM_IMPORT(name);                                                                 \
++  ret c_name params EM_IMPORT(js_name);                                                            \
+   EMSCRIPTEN_KEEPALIVE                                                                             \
+-  __attribute__((section("em_js"), aligned(1))) char __em_js__##name[] =                           \
+-    #params "<::>" #__VA_ARGS__;                                                                   \
++  __attribute__((section("em_js"), aligned(1))) char __em_js__##js_name[] =                        \
++    #params "<::>" code;                                                                           \
+   _EM_JS_CPP_END
++
++#define EM_JS(ret, name, params, ...) _EM_JS(ret, name, name, params, #__VA_ARGS__)
++
++#define EM_ASYNC_JS(ret, name, params, ...) _EM_JS(ret, name, __asyncjs__##name, params,           \
++  "{ return Asyncify.handleAsync(async () => " #__VA_ARGS__ "); }")
+
+
+--- a/emsdk/upstream/emscripten/emcc.py
++++ b/emsdk/upstream/emscripten/emcc.py
+@@ -111,7 +111,9 @@
+   'emscripten_idb_load_blob', 'emscripten_idb_store_blob', 'SDL_Delay',
+   'emscripten_scan_registers', 'emscripten_lazy_load_code',
+   'emscripten_fiber_swap',
+-  'wasi_snapshot_preview1.fd_sync', '__wasi_fd_sync', '_emval_await']
++  'wasi_snapshot_preview1.fd_sync', '__wasi_fd_sync', '_emval_await',
++  'dlopen', '__asyncjs__*'
++  ]
+ 
+ # Mapping of emcc opt levels to llvm opt levels. We use llvm opt level 3 in emcc
+ # opt levels 2 and 3 (emcc 3 is unsafe opts, so unsuitable for the only level to
+
+--- a/emsdk/upstream/emscripten/src/library_async.js
++++ b/emsdk/upstream/emscripten/src/library_async.js
+@@ -75,8 +75,9 @@
+                 // indirect calls.
+                 if (Asyncify.state !== originalAsyncifyState &&
+                     ASYNCIFY_IMPORTS.indexOf(x) < 0 &&
++                    !x.startsWith('__asyncjs__') &&
+                     !(x.startsWith('invoke_') && {{{ !ASYNCIFY_IGNORE_INDIRECT }}})) {
+-                  throw 'import ' + x + ' was not in ASYNCIFY_IMPORTS, but changed the state';
++                  throw new Error('import ' + x + ' was not in ASYNCIFY_IMPORTS, but changed the state');
+                 }
+               }
+             }
