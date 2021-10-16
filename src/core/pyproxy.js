@@ -166,7 +166,7 @@ if (globalThis.FinalizationRegistry) {
         () => f(non_thenable)
       ));
     }
-    return new ResultWrapper(non_thenable);
+    return new ResultWrapper(() => f(non_thenable));
   }
 }
 
@@ -378,24 +378,27 @@ Module.callPyObjectKwargs = function (ptrobj, ...jsargs) {
   let idargs = Module.hiwire.new_value(jsargs);
   let idkwnames = Module.hiwire.new_value(kwargs_names);
   let idresult;
-  try {
-    idresult = Module.__pyproxy_apply(
-      ptrobj,
-      idargs,
-      num_pos_args,
-      idkwnames,
-      num_kwargs
-    );
-  } catch (e) {
-    Module.fatal_error(e);
-  } finally {
-    Module.hiwire.decref(idargs);
-    Module.hiwire.decref(idkwnames);
-  }
-  if (idresult === 0) {
-    Module._pythonexc2js();
-  }
-  return Module.hiwire.pop_value(idresult);
+  return Module.call_asyncify(
+    "__pyproxy_apply",
+    ptrobj,
+    idargs,
+    num_pos_args,
+    idkwnames,
+    num_kwargs
+  ).then((res) => {
+    try {
+      idresult = res.unwrap();
+    } catch (e) {
+      Module.fatal_error(e);
+    } finally {
+      Module.hiwire.decref(idargs);
+      Module.hiwire.decref(idkwnames);
+    }
+    if (idresult === 0) {
+      Module._pythonexc2js();
+    }
+    return Module.hiwire.pop_value(idresult);
+  }).unwrap();
 };
 
 Module.callPyObject = function (ptrobj, ...jsargs) {
