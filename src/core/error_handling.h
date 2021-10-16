@@ -94,8 +94,26 @@ console_error_obj(JsRef obj);
 #define EM_JS_DEFER(ret, func_name, args, body...)                             \
   EM_JS(ret, func_name, args, body)
 
+#define EM_ASYNC_JS_DEFER(ret, func_name, args, body...)                       \
+  EM_ASYNC_JS(ret, func_name, args, body)
+
 #define EM_JS_REF(ret, func_name, args, body...)                               \
   EM_JS_DEFER(ret, func_name, args, {                                          \
+    "use strict";                                                              \
+    try    /* intentionally no braces, body already has them */                \
+      body /* <== body of func */                                              \
+    catch (e) {                                                                \
+        LOG_EM_JS_ERROR(func_name, e);                                         \
+        Module.handle_js_error(e);                                             \
+        return 0;                                                              \
+    }                                                                          \
+    throw new Error(                                                           \
+      "Assertion error: control reached end of function without return"        \
+    );                                                                         \
+  })
+
+#define EM_ASYNC_JS_REF(ret, func_name, args, body...)                         \
+  EM_ASYNC_JS_DEFER(ret, func_name, args, {                                    \
     "use strict";                                                              \
     try    /* intentionally no braces, body already has them */                \
       body /* <== body of func */                                              \
