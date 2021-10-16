@@ -720,11 +720,34 @@ finally:
   }
 }
 
+static PyObject*
+await_js(PyObject* self, PyObject* arg)
+{
+  if (!JsProxy_Check(arg)) {
+    PyErr_SetString(PyExc_TypeError, "Expected a JsProxy for the argument");
+    return NULL;
+  }
+
+  JsRef awaitable = JsProxy_AsJs(arg);
+  JsRef jsresult = JsObject_Await(awaitable);
+  PyObject* pyresult = js2python(jsresult);
+
+  hiwire_CLEAR(awaitable);
+  hiwire_CLEAR(jsresult);
+
+  return pyresult;
+}
+
 static PyMethodDef methods[] = {
   {
     "to_js",
     (PyCFunction)to_js,
     METH_FASTCALL | METH_KEYWORDS,
+  },
+  {
+    "await_js",
+    (PyCFunction)await_js,
+    METH_O,
   },
   {
     "destroy_proxies",

@@ -370,6 +370,19 @@ EM_JS_REF(JsRef, JsObject_GetString, (JsRef idobj, const char* ptrkey), {
   return Module.hiwire.new_value(result);
 });
 
+// EM_ASYNC_JS functions are imported with a different JS name
+// so they don't work nicely across compilation units.
+// Wrap the function call with a normal C function instead.
+EM_ASYNC_JS_REF(JsRef, JsObject_Await_impl, (JsRef idobj), {
+  let jsobj = Module.hiwire.get_value(idobj);
+  let result = await jsobj;
+  return Module.hiwire.new_value(result);
+});
+
+JsRef JsObject_Await(JsRef idobj) {
+  return JsObject_Await_impl(idobj);
+}
+
 // clang-format off
 EM_JS_NUM(
 errcode,
