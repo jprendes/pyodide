@@ -11,7 +11,6 @@ if IN_BROWSER:
         JsException,
         to_js,
         destroy_proxies,
-        await_js,
     )
 else:
     from _pyodide._core_docs import (
@@ -22,7 +21,6 @@ else:
         JsException,
         to_js,
         destroy_proxies,
-        await_js,
     )
 
 
@@ -34,5 +32,4 @@ __all__ = [
     "to_js",
     "ConversionError",
     "destroy_proxies",
-    "await_js",
 ]

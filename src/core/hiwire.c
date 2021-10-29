@@ -370,19 +370,6 @@ EM_JS_REF(JsRef, JsObject_GetString, (JsRef idobj, const char* ptrkey), {
   return Module.hiwire.new_value(result);
 });
 
-// EM_ASYNC_JS functions are imported with a different JS name
-// so they don't work nicely across compilation units.
-// Wrap the function call with a normal C function instead.
-EM_ASYNC_JS_REF(JsRef, JsObject_Await_impl, (JsRef idobj), {
-  let jsobj = Module.hiwire.get_value(idobj);
-  let result = await jsobj;
-  return Module.hiwire.new_value(result);
-});
-
-JsRef JsObject_Await(JsRef idobj) {
-  return JsObject_Await_impl(idobj);
-}
-
 // clang-format off
 EM_JS_NUM(
 errcode,
@@ -462,11 +449,32 @@ convert_va_args(va_list args)
   return idargs;
 }
 
-EM_JS_REF(JsRef, hiwire_call, (JsRef idfunc, JsRef idargs), {
+EM_JS_NUM(int, hiwire_IsSync, (JsRef obj_id), {
+  // clang-format off
+  let obj = Module.hiwire.get_value(obj_id);
+  return (typeof obj === "function") && obj.sync === true;
+  // clang-format on
+});
+
+EM_JS_REF(JsRef, hiwire_call_impl, (JsRef idfunc, JsRef idargs), {
   let jsfunc = Module.hiwire.get_value(idfunc);
   let jsargs = Module.hiwire.get_value(idargs);
   return Module.hiwire.new_value(jsfunc(... jsargs));
 });
+
+EM_ASYNC_JS_REF(JsRef, hiwire_call_sync_impl, (JsRef idfunc, JsRef idargs), {
+  let jsfunc = Module.hiwire.get_value(idfunc);
+  let jsargs = Module.hiwire.get_value(idargs);
+  return Module.hiwire.new_value(await jsfunc(... jsargs));
+});
+
+JsRef hiwire_call(JsRef idfunc, JsRef idargs) {
+  if (hiwire_IsSync(idfunc)) {
+    return hiwire_call_sync_impl(idfunc, idargs);
+  } else {
+    return hiwire_call_impl(idfunc, idargs);
+  }
+}
 
 JsRef
 hiwire_call_va(JsRef idobj, ...)
@@ -479,15 +487,29 @@ hiwire_call_va(JsRef idobj, ...)
   return idresult;
 }
 
-EM_JS_REF(JsRef, hiwire_call_OneArg, (JsRef idfunc, JsRef idarg), {
+EM_JS_REF(JsRef, hiwire_call_OneArg_impl, (JsRef idfunc, JsRef idarg), {
   let jsfunc = Module.hiwire.get_value(idfunc);
   let jsarg = Module.hiwire.get_value(idarg);
   return Module.hiwire.new_value(jsfunc(jsarg));
 });
 
+EM_ASYNC_JS_REF(JsRef, hiwire_call_OneArg_sync_impl, (JsRef idfunc, JsRef idarg), {
+  let jsfunc = Module.hiwire.get_value(idfunc);
+  let jsarg = Module.hiwire.get_value(idarg);
+  return Module.hiwire.new_value(await jsfunc(jsarg));
+});
+
+JsRef hiwire_call_OneArg(JsRef idfunc, JsRef idarg) {
+  if (hiwire_IsSync(idfunc)) {
+    return hiwire_call_OneArg_sync_impl(idfunc, idarg);
+  } else {
+    return hiwire_call_OneArg_impl(idfunc, idarg);
+  }
+}
+
 // clang-format off
 EM_JS_REF(JsRef,
-hiwire_call_bound,
+hiwire_call_bound_impl,
 (JsRef idfunc, JsRef idthis, JsRef idargs),
 {
   let func = Module.hiwire.get_value(idfunc);
@@ -500,6 +522,33 @@ hiwire_call_bound,
   let args = Module.hiwire.get_value(idargs);
   return Module.hiwire.new_value(func.apply(this_, args));
 });
+// clang-format on
+
+// clang-format off
+EM_ASYNC_JS_REF(JsRef,
+hiwire_call_bound_sync_impl,
+(JsRef idfunc, JsRef idthis, JsRef idargs),
+{
+  let func = Module.hiwire.get_value(idfunc);
+  let this_;
+  if (idthis === 0) {
+    this_ = null;
+  } else {
+    this_ = Module.hiwire.get_value(idthis);
+  }
+  let args = Module.hiwire.get_value(idargs);
+  return Module.hiwire.new_value(await func.apply(this_, args));
+});
+// clang-format on
+
+// clang-format off
+JsRef hiwire_call_bound(JsRef idfunc, JsRef idthis, JsRef idargs) {
+  if (hiwire_IsSync(idfunc)) {
+    return hiwire_call_bound_sync_impl(idfunc, idthis, idargs);
+  } else {
+    return hiwire_call_bound_impl(idfunc, idthis, idargs);
+  }
+}
 // clang-format on
 
 EM_JS_NUM(int, hiwire_HasMethod, (JsRef obj_id, JsRef name), {

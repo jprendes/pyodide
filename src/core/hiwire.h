@@ -219,15 +219,6 @@ JsRef
 JsObject_GetString(JsRef idobj, const char* ptrname);
 
 /**
- * Await an object.
- *
- *
- * Returns: New reference
- */
-JsRef
-JsObject_Await(JsRef idobj);
-
-/**
  * Set an object member by string.
  */
 errcode
